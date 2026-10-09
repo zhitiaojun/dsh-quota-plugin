@@ -1152,8 +1152,24 @@ check(
   "the wrap rule is scoped to our own marker attribute, not a DSH class name",
 );
 check(
-  /data-dsh-quota='row'\]\{flex:1 0 100%/.test(source.replace(/\\/g, "")),
-  "the read-out claims a full row of its own (flex-basis 100%)",
+  /data-dsh-quota-dock-wrap\]>:has\(\[data-dsh-quota='row'\]\)\{flex:1 0 100%\}/.test(
+    source.replace(/\\/g, ""),
+  ),
+  "the read-out's wrapper claims a full row (flex-basis 100%), reached via :has on the dock's direct child",
+);
+// The first attempt marked row.parentElement, which is DSH's slot WRAPPER, not
+// the dock — so the container never wrapped. The finder must walk up.
+check(
+  /function findDockRow/.test(source),
+  "the dock is located by walking up to a horizontal flex container",
+);
+check(
+  /getComputedStyle/.test(source),
+  "the dock finder inspects computed styles rather than assuming a fixed parent",
+);
+check(
+  /depth < 6/.test(source) && /tag === "BODY" \|\| tag === "HTML"/.test(source),
+  "the upward walk is bounded and refuses to mark body/html",
 );
 // The bundle must handle a DOM-free context rather than throwing.
 check(
