@@ -189,6 +189,35 @@ check("MUTANT: a row-only style with no container rule is rejected", () => {
   assert.equal(/flex-wrap/.test(rowOnly), false, "the row-only style must fail the wrap assertion");
 });
 
+check("each source is identified by its product's own mark", () => {
+  const uris = source.match(/data:image\/png;base64,[A-Za-z0-9+/=]{400,}/g) ?? [];
+  assert.equal(uris.length, 2, `expected two inlined marks, found ${uris.length}`);
+  assert.notEqual(uris[0], uris[1], "both kinds must not share one icon");
+  assert.ok(/function sourceIcon\(kind\)/.test(source), "the kind -> icon mapping is gone");
+  // Inlined, not fetched: the bundle's require supports only react and
+  // react/jsx-runtime, so a sibling module could not be imported.
+  assert.ok(!/require\(["']\.\/icons/.test(source), "the icons are imported from a module again");
+});
+
+check("MUTANT: a single shared icon is rejected", () => {
+  // The pre-change read-out was plain text with no marks at all; a version that
+  // gave every source the SAME mark would be worse than none.
+  const shared = '<img src="' + "A".repeat(500) + '" />';
+  const found = shared.match(/data:image\/png;base64,[A-Za-z0-9+/=]{400,}/g) ?? [];
+  assert.equal(found.length, 0, "a non-data-URI mark must fail the inlined-asset check");
+});
+
+check("the marks are decorative, never announced twice", () => {
+  // The source's custom name is text beside the mark, so an alt text repeating
+  // it would double-announce. Assert every img in the bundle is decorative.
+  const imgs = source.match(/jsx\("img",\s*\{[\s\S]{0,240}?\}\)/g) ?? [];
+  assert.ok(imgs.length >= 2, `expected the row and card icons, found ${imgs.length}`);
+  for (const img of imgs) {
+    assert.ok(/alt:\s*""/.test(img), `an icon is not decorative: ${img.slice(0, 80)}`);
+    assert.ok(/"aria-hidden":\s*"true"/.test(img), `an icon lacks aria-hidden: ${img.slice(0, 80)}`);
+  }
+});
+
 console.log(`\n  ${checks - failures}/${checks} checks passed\n`);
 if (failures > 0) {
   console.log(`  ${failures} check(s) FAILED\n`);

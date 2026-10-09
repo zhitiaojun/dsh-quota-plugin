@@ -97,12 +97,32 @@ Claude and GPT models
 
 这几个约定参考了同类产品（[CodexBar](https://codexbar.app) 这类额度菜单栏工具、GitHub Copilot 配额扩展、Anthropic / Cursor 的用量页）：
 
+- **每个来源带品牌图标**：迷你态和展开态都会显示该产品自己的图标（WorkBuddy 的绿色机器人、Google Antigravity 的彩虹弧线）。
 - **数值带方向词**：「剩余 78%」，不是光秃秃的「78%」——否则读者要自己判断进度条是涨还是跌。
 - **一个指标只给一个数**：进度条本身已表达比例，所以有了百分比就不再重复「1,567 / 2,000」。只有 WorkBuddy 积分这种**有绝对值的余额**才显示 `1,567.9 / 2,000`，因为那个数比它的百分比更有用。
 - **重置时间用倒计时**：「2h 14m 后重置」比「11/03 00:00」更直观——不用自己减。超过一周才退回日期（那种情况日期更好排计划）。
 - **阈值配色**：剩余 ≤30% 转琥珀、≤10% 转红并加「不足」小标签。颜色**永远只是第二重编码**，数字始终显示，状态不靠颜色单独承载。
 - **用尽时换内容**：剩余 0% 时百分比是最没用的信息，改显示重置倒计时。
 - **未知不等于 0**：取不到数据显示「—」，绝不显示 0%，也不会被染成红色。
+
+### 图标从哪来
+
+两个图标都不是我画的，而是取自产品**自己的安装包**，所以是真实品牌标识：
+
+| 来源 | 取处 |
+|---|---|
+| WorkBuddy | `D:\Program\WorkBuddy\Assets\Square44x44Logo.targetsize-256.png` |
+| Google Antigravity | 官方 installer.exe 内嵌的 256×256 logo |
+
+它们由 [`scripts/build-icons.py`](scripts/build-icons.py) 压成 32px PNG 并**以 data URI 内联进 `lib/client.js`**（合计约 4.3 KB）。之所以内联而不是放独立模块：浏览器半边的 `require` **只支持 `react` 和 `react/jsx-runtime`**，独立文件根本 import 不了。
+
+重新生成：
+
+```bash
+python scripts/build-icons.py
+```
+
+脚本是幂等的（在 `//#region generated: brand icons` 标记之间重写），可安全重复运行。
 
 ---
 

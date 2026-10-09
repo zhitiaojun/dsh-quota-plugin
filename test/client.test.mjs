@@ -1288,6 +1288,106 @@ check(
 );
 
 /* ------------------------------------------------------------------ *
+ * brand icons
+ *
+ * Each source is identified by its product's real mark, in both surfaces. The
+ * icons are inlined data URIs: the browser half's `require` supports only react
+ * and react/jsx-runtime, so a separate module could not be imported.
+ * ------------------------------------------------------------------ */
+section("brand icons");
+
+check(
+  /data:image\/png;base64,[A-Za-z0-9+/=]{400,}/.test(source),
+  "a brand icon is inlined as a PNG data URI",
+);
+check(
+  (source.match(/data:image\/png;base64,[A-Za-z0-9+/=]{400,}/g) ?? []).length === 2,
+  "both marks (WorkBuddy and Antigravity) are inlined",
+);
+check(
+  /function sourceIcon\(kind\)/.test(source),
+  "a kind -> icon mapping exists",
+);
+// The mapping must actually distinguish the two kinds, or every source would
+// wear the same badge.
+const iconFn = new Function(
+  `${source.match(/const WORKBUDDY_ICON = "[^"]+";/)[0]}` +
+    `${source.match(/const GOOGLE_ICON = "[^"]+";/)[0]}` +
+    `const KIND_GOOGLE = "google";` +
+    `${source.match(/function sourceIcon\(kind\) \{[\s\S]*?\n\t\t\}/)[0]};` +
+    `return sourceIcon;`,
+)();
+check(iconFn("google") !== iconFn("workbuddy"), "the two kinds get different marks");
+check(iconFn("google") === iconFn("google"), "the mapping is stable");
+
+// Detail panel: every card carries its source's mark.
+records.clear();
+host.state = makeHostState();
+mountSurface(dockReg, "row");
+await settle();
+const iconStore = dockReg.options.inject().store;
+iconStore.setOpen(true, { getBoundingClientRect: () => ROW_RECT });
+mountSurface(overlayReg, "panel");
+await settle();
+
+const googleCard = findByProp(CURRENT_TREE, "data-dsh-quota-source", "google-1");
+const wbCardIcon = findByProp(CURRENT_TREE, "data-dsh-quota-source", "workbuddy-1");
+const googleIcon = findByProp(googleCard, "data-dsh-quota-icon", "google");
+const workbuddyIcon = findByProp(wbCardIcon, "data-dsh-quota-icon", "workbuddy");
+check(googleIcon !== null, "the Google card shows its mark");
+check(workbuddyIcon !== null, "the WorkBuddy card shows its mark");
+check(
+  googleIcon !== null && workbuddyIcon !== null && googleIcon.props.src !== workbuddyIcon.props.src,
+  "the two cards do not share one icon",
+);
+check(
+  googleIcon !== null && googleIcon.props.src.startsWith("data:image/png;base64,"),
+  "the card icon is the inlined asset, not a network URL",
+);
+// Decorative: the label beside it already names the source.
+check(
+  googleIcon !== null && googleIcon.props.alt === "" && googleIcon.props["aria-hidden"] === "true",
+  "the card icon is marked decorative so a screen reader does not repeat the name",
+);
+check(
+  findAllByProp(CURRENT_TREE, "data-dsh-quota-icon", "google").length === 1,
+  "exactly one Google card icon renders (no duplicate badges)",
+);
+
+// Dock read-out: same marks, smaller. Checked from the ROW's own mount, since
+// `mount` renders one root and mounting the panel replaced the tree.
+records.clear();
+host.state = makeHostState();
+mountSurface(dockReg, "row");
+await settle();
+const dockIcon = findByProp(CURRENT_TREE, "data-dsh-quota-row-icon", "google");
+const dockWbIcon = findByProp(CURRENT_TREE, "data-dsh-quota-row-icon", "workbuddy");
+check(dockIcon !== null, "the dock read-out shows the source's mark");
+check(dockWbIcon !== null, "the dock read-out shows every source's mark");
+check(
+  dockIcon !== null && dockWbIcon !== null && dockIcon.props.src !== dockWbIcon.props.src,
+  "the read-out does not reuse one icon for both kinds",
+);
+check(
+  dockIcon !== null && dockIcon.props.src.startsWith("data:image/png;base64,"),
+  "the read-out icon is the inlined asset",
+);
+check(
+  dockIcon !== null && dockIcon.props.alt === "" && dockIcon.props["aria-hidden"] === "true",
+  "the read-out icon is decorative (the read-out text names the source)",
+);
+check(
+  dockIcon !== null && typeof dockIcon.props.style.width === "number" && dockIcon.props.style.width < 14,
+  `the read-out icon is smaller than the panel's (got ${dockIcon === null ? "-" : dockIcon.props.style.width})`,
+);
+// The read-out text must still be present beside the icon.
+const dockRow = findByProp(CURRENT_TREE, "data-dsh-quota", "row");
+check(
+  text(dockRow).includes("Google (DR)") && text(dockRow).includes("WorkBuddy"),
+  `the read-out keeps its text beside the icons (got: ${text(dockRow)})`,
+);
+
+/* ------------------------------------------------------------------ *
  * summary
  * ------------------------------------------------------------------ */
 console.log(`\n${checks - failures}/${checks} checks passed${failures === 0 ? "" : `, ${failures} FAILED`}`);
