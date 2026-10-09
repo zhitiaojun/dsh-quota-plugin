@@ -87,10 +87,10 @@ check("no verbose date format remains in the panel path", () => {
     !/dateStyle:\s*"medium"/.test(source),
     "a medium date style is back: the panel will print a long year-bearing date",
   );
-  assert.ok(
-    /month:\s*"2-digit"/.test(source),
-    "the compact MM-DD HH:mm form is gone",
-  );
+  // Reset times are relative countdowns now; a wall-clock formatter returning
+  // month/day/hour/minute would mean the absolute form crept back in.
+  assert.ok(/formatCountdown/.test(source), "the relative countdown formatter is gone");
+  assert.ok(/formatShortDate/.test(source), "the far-future date fallback is gone");
 });
 
 check("the redundant per-source line and text buttons are gone", () => {
@@ -103,27 +103,32 @@ check("the redundant per-source line and text buttons are gone", () => {
   );
 });
 
-check("MUTANT: the pre-trim stacked-meta shape is rejected", () => {
-  // The old MetricBar rendered the amount and the reset time as TWO separate
-  // stacked divs below the bar. They now share one wrapping line, so the shape
-  // to reject is "two independent block lines", not "any amount marker".
-  const preTrim = `
-    <div style={metaStyle} data-dsh-quota-amount>{amount}</div>
-    <div style={metaStyle} data-dsh-quota-reset>{reset}</div>
+check("MUTANT: the three-encoding metric block is rejected", () => {
+  // The design review's main finding: the old block rendered the ratio three
+  // times — a percentage, a bar, AND "1,567 / 2,000" on a line under the bar.
+  // The amount now lives in the value slot, so a separate amount line must not
+  // come back.
+  const threeEncodings = `
+    <span data-dsh-quota-percent>{pct}</span>
+    <div data-dsh-quota-fill />
+    <div data-dsh-quota-amount>{amount}</div>
   `;
-  const stackedBlocks = (preTrim.match(/<div[^>]*data-dsh-quota-(amount|reset)/g) ?? []).length;
-  assert.equal(stackedBlocks, 2, "the pre-trim shape should have two stacked block lines");
-  // The shipped bundle keeps ONE container for both, marked metaLineStyle.
-  assert.ok(!/metaStyle, \s*\n\s*"data-dsh-quota-amount"/.test(source), "a stacked amount block came back");
-  assert.ok(/metaLineStyle/.test(source), "the shared wrapping meta line is gone");
+  const amountLines = (threeEncodings.match(/<div[^>]*data-dsh-quota-amount/g) ?? []).length;
+  assert.equal(amountLines, 1, "the pre-review shape had the amount on its own block line");
+  // Shipped: the amount marker rides on the value span, never a separate block.
+  assert.ok(
+    !/<div[^>]*data-dsh-quota-amount/.test(source),
+    "the redundant amount block line came back",
+  );
+  assert.ok(/data-dsh-quota-amount/.test(source), "the amount value is gone entirely");
 });
 
 check("the trim kept the information the user still needs", () => {
-  // Percentages, the remaining/total amount and reset times must survive.
+  // Percentages, the credit amount and reset countdowns must all survive.
   assert.ok(/data-dsh-quota-percent/.test(source), "the percentage is gone");
   assert.ok(/data-dsh-quota-fill/.test(source), "the bar fill is gone");
   assert.ok(/formatPercent/.test(source), "percentage formatting is gone");
-  assert.ok(/resetAt/.test(source), "reset times are gone");
+  assert.ok(/resetsIn/.test(source), "reset countdowns are gone");
   assert.ok(/formatNumber\(metric\.remaining\)/.test(source), "the remaining/total amount is gone");
 });
 

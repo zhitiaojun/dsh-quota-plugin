@@ -246,6 +246,18 @@ await test("PUT /sources then GET /state returns the client's field names", asyn
     ["Gemini Models", "Claude and GPT models"],
     "both upstream groups must be represented, in upstream order",
   );
+  // The window label must be a word a reader does not have to decode: a bare
+  // "5h" beside a number reads as five of something unspecified.
+  const labels = g.metrics.map((m) => m.label);
+  assert.deepEqual(
+    labels,
+    ["周", "5 小时", "周", "5 小时"],
+    "window labels must be semantic and follow the upstream bucket order",
+  );
+  assert.ok(
+    !labels.includes("5h"),
+    "a bare '5h' label reached the client",
+  );
   // The window labels repeat across groups; that is precisely why group matters.
   assert.equal(
     g.metrics.filter((m) => m.label === "周").length,

@@ -1036,32 +1036,29 @@ check(
   text(compactPanel).includes(formatted(1568)) && text(compactPanel).includes(formatted(2000)),
   "remaining and total both survive at the narrow width",
 );
-// Narrow layout: the label and the percentage share the headline row (only two
-// children, so neither can be squeezed out), and the amount plus the reset time
-// share one WRAPPING line beneath the bar. Asserted on structure, because the
-// bundle's style objects are not visible from here.
+// Narrow layout, revised after the design review: the value slot carries exactly
+// ONE number. A credit balance shows its absolute amount there (more useful than
+// a percentage of it, and the bar still encodes the ratio); a rate window shows
+// "N% left". Previously the amount ALSO appeared on a line under the bar, which
+// stated the same ratio three times over.
 const creditMeta = findByProp(compactCredit, "data-dsh-quota-amount", "");
-check(creditMeta !== null, "the amount renders on the narrow panel");
+check(creditMeta !== null, "the amount renders in the value slot");
 check(
-  creditMeta !== null && creditMeta.props.style === undefined,
-  "the amount is an inline span in the shared meta line, not its own styled block",
+  creditMeta !== null && creditMeta.props["data-dsh-quota-percent"] === "",
+  "the amount shares the value slot with the percentage marker (no third encoding)",
 );
-// Its parent must be the wrapping meta line that also holds the reset time.
-const metaParent = nodes(compactCredit).find(
+// The reset line stays a separate, wrapping row so it can never clip a number.
+const resetParent = nodes(compactCredit).find(
   (node) =>
     node !== null &&
     typeof node === "object" &&
     Array.isArray(node.children) &&
-    node.children.includes(creditMeta),
+    node.children.some((child) => child !== null && typeof child === "object" && child.props && child.props["data-dsh-quota-reset"] === ""),
 );
-check(metaParent !== undefined, "the amount sits inside a shared container");
+check(resetParent !== undefined, "the reset line sits in its own container");
 check(
-  metaParent !== undefined && typeof metaParent.props.style === "object" && metaParent.props.style !== null,
-  "the shared container carries the wrapping layout style",
-);
-check(
-  metaParent !== undefined && metaParent.props.style.flexWrap === "wrap",
-  `the meta line wraps instead of clipping a number (got flexWrap=${metaParent === undefined ? "-" : metaParent.props.style.flexWrap})`,
+  resetParent !== undefined && resetParent.props.style.flexWrap === "wrap",
+  `the reset line wraps instead of clipping (got flexWrap=${resetParent === undefined ? "-" : resetParent.props.style.flexWrap})`,
 );
 check(
   text(compactPanel).length < 400,
@@ -1175,6 +1172,119 @@ check(
 check(
   /typeof document === "undefined"/.test(source),
   "the wrap helper is guarded for a context without a document",
+);
+
+/* ------------------------------------------------------------------ *
+ * presentation conventions adopted from the design review
+ *
+ * The review of comparable products (CodexBar, the Copilot quota extension,
+ * Anthropic/Cursor usage pages) found three recurring rules this panel now
+ * follows. Each is asserted because each is easy to regress.
+ * ------------------------------------------------------------------ */
+section("value wording and thresholds");
+
+// Countdown formatter, exercised directly: it is pure and the cases are the
+// whole point (relative beats wall-clock; far-future falls back to a date).
+const countdownFn = new Function(
+  `${source.match(/function formatShortDate[\s\S]*?\n\t\t\}/)[0]};` +
+    `${source.match(/function formatCountdown[\s\S]*?\n\t\t\}/)[0]};` +
+    `return formatCountdown;`,
+)();
+const iso = (ms) => new Date(Date.now() + ms).toISOString();
+const H = 3600_000;
+const D = 24 * H;
+// The formatter FLOORS to whole minutes, so a fixture built at exactly N minutes
+// loses one the moment any time elapses before it is read — it passed alone and
+// failed in the full run for exactly that reason. Half a minute of slack makes
+// the boundary deterministic without weakening what is being asserted.
+const SLACK = 30_000;
+check(
+  countdownFn(iso(2 * H + 14 * 60_000 + SLACK)) === "2h 14m",
+  `sub-day reads as hours and minutes (got ${countdownFn(iso(2 * H + 14 * 60_000 + SLACK))})`,
+);
+check(
+  countdownFn(iso(45 * 60_000 + SLACK)) === "45m",
+  `under an hour reads as minutes (got ${countdownFn(iso(45 * 60_000 + SLACK))})`,
+);
+check(
+  countdownFn(iso(6 * D + 23 * H + SLACK)) === "6d 23h",
+  `multi-day reads as days and hours (got ${countdownFn(iso(6 * D + 23 * H + SLACK))})`,
+);
+check(countdownFn(iso(-H)) === "", "a past reset yields no countdown rather than a negative one");
+check(
+  countdownFn(iso(20 * D)) !== "" && !countdownFn(iso(20 * D)).includes("d "),
+  `far-future falls back to a date (got ${countdownFn(iso(20 * D))})`,
+);
+check(countdownFn("not a date") === "not a date", "an unparseable value is shown verbatim, never dropped");
+
+// Thresholds: 30% warns, 10% is critical (the Copilot-extension convention).
+const colorFn = new Function(`${source.match(/function barColorName[\s\S]*?\n\t\t\}/)[0]}; return barColorName;`)();
+check(colorFn(100) === "neutral" && colorFn(31) === "neutral", "healthy headroom stays neutral");
+check(colorFn(30) === "amber" && colorFn(11) === "amber", "30% down to 11% warns in amber");
+check(colorFn(10) === "red" && colorFn(0) === "red", "10% and below is critical");
+check(colorFn(null) === "unknown", "an unknown percentage is not coloured as zero");
+
+// The direction word. A bare "78%" leaves the reader guessing which way the bar
+// runs, so the value must say what it means.
+check(
+  source.includes("percentLeft") && source.includes("resetsIn"),
+  "the wording keys for remaining percentage and reset countdown exist",
+);
+// The bar fills with REMAINING, so the text and the bar must agree in direction.
+const fillFn = new Function(`${source.match(/function fillStyle[\s\S]*?\n\t\t\}/)[0]}; return fillStyle;`)();
+check(
+  fillFn(25, "#000").width === "25%",
+  "the fill width equals the REMAINING percentage, matching the text",
+);
+
+/* ------------------------------------------------------------------ *
+ * exhausted state
+ * ------------------------------------------------------------------ */
+section("exhausted state");
+
+records.clear();
+host.state = makeHostState();
+// A zeroed weekly window, with a reset still to come.
+host.state.sources[0].metrics[0] = {
+  key: "gemini-weekly",
+  group: GEMINI_GROUP,
+  label: WEEKLY_LABEL,
+  percent: 0,
+  resetTime: iso(2 * H + 14 * 60_000),
+};
+mountSurface(dockReg, "row");
+await settle();
+const exStore = dockReg.options.inject().store;
+exStore.setOpen(true, { getBoundingClientRect: () => ROW_RECT });
+mountSurface(overlayReg, "panel");
+await settle();
+
+const zeroBar = findByProp(CURRENT_TREE, "data-dsh-quota-metric", "gemini-weekly");
+check(zeroBar !== null, "the zeroed metric renders");
+const zeroText = text(zeroBar);
+// At zero the percentage is the least useful fact; the countdown replaces it.
+// Match loosely on "2h 1Xm": real time elapses between building the fixture and
+// rendering, so pinning the exact minute would be flaky.
+check(
+  /2h 1\d+m/.test(zeroText),
+  `the exhausted metric shows when it comes back (got: ${zeroText})`,
+);
+check(
+  !zeroText.includes("0%"),
+  `the useless "0% left" is replaced rather than shown beside the countdown (got: ${zeroText})`,
+);
+// The countdown must appear exactly ONCE: it moved into the value slot, so the
+// reset line beneath the bar must be suppressed rather than repeating it.
+const countdownHits = (zeroText.match(/\u540e\u91cd\u7f6e/g) ?? []).length;
+check(
+  countdownHits === 1,
+  `the exhausted metric states its reset once, not twice (got ${countdownHits} in: ${zeroText})`,
+);
+// A low-but-nonzero metric gets the chip; a healthy one must not.
+const healthyBar = findByProp(CURRENT_TREE, "data-dsh-quota-metric", "gemini-5h");
+check(
+  healthyBar !== null && findByProp(healthyBar, "data-dsh-quota-low", "") === null,
+  "a healthy metric grows no low chip",
 );
 
 /* ------------------------------------------------------------------ *
