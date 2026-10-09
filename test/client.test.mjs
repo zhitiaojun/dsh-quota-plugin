@@ -164,6 +164,15 @@ function useEffect(create, deps) {
   let slot = record.slots[index];
   const changed = slot === undefined || slot.kind !== "effect" || !sameDeps(slot.deps, list);
   if (changed) {
+    // React runs the previous cleanup before the next effect. Replacing the slot
+    // first would silently drop it, so a leaked listener could never be caught.
+    if (slot !== undefined && slot.kind === "effect" && typeof slot.cleanup === "function") {
+      try {
+        slot.cleanup();
+      } catch {
+        /* a stale cleanup must not abort the run */
+      }
+    }
     slot = { kind: "effect", deps: list, create, cleanup: undefined };
     record.slots[index] = slot;
     pendingEffects.push({ path: record.path, index });
@@ -836,8 +845,233 @@ check(
 );
 
 /* ------------------------------------------------------------------ *
+ * click-outside-to-close
+ *
+ * The overlay is click-through (pointerEvents: none), so it can never catch
+ * the click itself — a document-level listener is what implements dismissal.
+ * These checks drive that listener directly, and they FAIL if it is missing,
+ * which is exactly the reported bug ("must press the close button").
+ * ------------------------------------------------------------------ */
+section("dismiss on outside click");
+
+const documentListeners = new Map();
+const documentStub = {
+  addEventListener: (type, fn) => {
+    const list = documentListeners.get(type) ?? [];
+    list.push(fn);
+    documentListeners.set(type, list);
+  },
+  removeEventListener: (type, fn) => {
+    const list = documentListeners.get(type) ?? [];
+    documentListeners.set(type, list.filter((entry) => entry !== fn));
+  },
+};
+const previousDocument = globalThis.document;
+globalThis.document = documentStub;
+
+try {
+  // Fresh mount with a clean listener table. `records` is cleared too: hook
+  // state is keyed by component path, so the panel mounted earlier in this file
+  // left a slot table whose deps already match — its effects would then be
+  // treated as unchanged, never run, and these checks would be vacuous.
+  documentListeners.clear();
+  records.clear();
+    host.state = {
+    ok: true,
+    updatedAt: new Date().toISOString(),
+    sources: [
+      {
+        id: "workbuddy-1",
+        kind: "workbuddy",
+        label: WB_PRIMARY,
+        status: "ok",
+        refreshedAt: new Date().toISOString(),
+        metrics: [
+          { key: "credits", label: CREDIT_LABEL, percent: 78.4, remaining: 1568, total: 2000, resetTime: ISO_RESET }
+        ]
+      }
+    ]
+  };
+  // `mount` renders ONE root, so the panel must be mounted last: mounting the
+  // row afterwards would replace the tree and make the checks vacuous.
+  mountSurface(dockReg, "row");
+  await settle();
+  const ocStore = dockReg.options.inject().store;
+  ocStore.setOpen(true);
+  mountSurface(overlayReg, "panel");
+  await settle();
+  check(
+    findByProp(CURRENT_TREE, "data-dsh-quota", "panel") !== null,
+    "the panel is open before testing dismissal",
+  );
+
+  // The listener is armed on a later task so the opening click cannot dismiss.
+  await new Promise((done) => setTimeout(done, 0));
+  flushEffects();
+
+  const pointerListeners = documentListeners.get("pointerdown") ?? [];
+  const mouseListeners = documentListeners.get("mousedown") ?? [];
+  check(
+    pointerListeners.length > 0 || mouseListeners.length > 0,
+    "opening the panel attaches a document-level dismiss listener",
+  );
+
+  // A click on empty space: target is outside the panel and outside the row.
+  const outsideTarget = {
+    closest: () => null,
+  };
+  for (const listener of [...pointerListeners, ...mouseListeners]) {
+    listener({ target: outsideTarget });
+  }
+  renderAndFlush();
+  check(
+    findByProp(CURRENT_TREE, "data-dsh-quota", "panel") === null,
+    "clicking outside the panel closes it (the reported bug: it only closed via the button)",
+  );
+
+  // Re-open, then click INSIDE the panel: it must stay open.
+  documentListeners.clear();
+  ocStore.setOpen(true, { getBoundingClientRect: () => ROW_RECT });
+  renderAndFlush();
+  await new Promise((done) => setTimeout(done, 0));
+  flushEffects();
+  const insideTarget = { closest: (selector) => (selector.includes("panel") ? {} : null) };
+  for (const listener of [...(documentListeners.get("pointerdown") ?? []), ...(documentListeners.get("mousedown") ?? [])]) {
+    listener({ target: insideTarget });
+  }
+  renderAndFlush();
+  check(
+    findByProp(CURRENT_TREE, "data-dsh-quota", "panel") !== null,
+    "clicking inside the panel keeps it open",
+  );
+
+  // Closing must tear the listener down, or every close leaks a handler.
+  const ocClose = findByProp(CURRENT_TREE, "data-dsh-quota-close", "");
+  check(ocClose !== null, "the panel still offers an explicit close button");
+  if (ocClose !== null) ocClose.props.onClick();
+  renderAndFlush();
+  await new Promise((done) => setTimeout(done, 0));
+  flushEffects();
+  const remaining =
+    (documentListeners.get("pointerdown") ?? []).length + (documentListeners.get("mousedown") ?? []).length;
+  check(remaining === 0, `closing removes the document listener (got ${remaining} left)`);
+} finally {
+  globalThis.document = previousDocument;
+  documentListeners.clear();
+}
+
+/* ------------------------------------------------------------------ *
+ * the panel stays compact
+ *
+ * The panel is a status popover: a full medium date, a per-source
+ * "last refreshed" line and a text button per row made it dominate the
+ * screen. These checks pin the trimmed shape so it cannot creep back.
+ * ------------------------------------------------------------------ */
+section("panel compactness");
+
+// Restore the three-source fixture the dismiss section replaced, and start from
+// a clean hook table so the count below is not affected by leftover state.
+records.clear();
+host.state = {
+  ok: true,
+  updatedAt: new Date().toISOString(),
+  sources: [
+    {
+      id: "google-1",
+      kind: "google",
+      label: "Google (DR)",
+      status: "ok",
+      refreshedAt: new Date().toISOString(),
+      metrics: [
+        { key: "gemini-weekly", label: WEEKLY_LABEL, percent: 98, resetTime: ISO_RESET },
+        { key: "gemini-5h", label: "5h", percent: 99, resetTime: ISO_RESET }
+      ]
+    },
+    {
+      id: "workbuddy-1",
+      kind: "workbuddy",
+      label: WB_PRIMARY,
+      status: "ok",
+      refreshedAt: new Date().toISOString(),
+      metrics: [
+        { key: "credits", label: CREDIT_LABEL, percent: 78.4, remaining: 1568, total: 2000, resetTime: ISO_RESET }
+      ]
+    },
+    {
+      id: "workbuddy-2",
+      kind: "workbuddy",
+      label: "WorkBuddy1",
+      status: "error",
+      error: "HTTP 401",
+      refreshedAt: null,
+      metrics: []
+    }
+  ]
+};
+
+mountSurface(dockReg, "row");
+await settle();
+const compactStore = dockReg.options.inject().store;
+compactStore.setOpen(true, { getBoundingClientRect: () => ROW_RECT });
+mountSurface(overlayReg, "panel");
+await settle();
+
+const compactPanel = findByProp(CURRENT_TREE, "data-dsh-quota", "panel");
+const compactText = text(compactPanel);
+check(compactPanel !== null, "panel renders for the compactness checks");
+
+// A medium date would contain a 4-digit year; the compact form is MM-DD HH:mm.
+const YEAR = String(new Date().getFullYear());
+check(
+  !compactText.includes(YEAR),
+  `the panel no longer prints a verbose year (got: ${compactText.slice(0, 140)})`,
+);
+// The per-source "last refreshed" line was removed; the row's own data remains.
+check(
+  !compactText.includes("\u4e0a\u6b21\u5237\u65b0"),
+  "the redundant per-source 'last refreshed' line is gone",
+);
+// The kind badge duplicated the user's own custom source name.
+check(
+  !/\bWorkBuddy\b\s*$/.test(compactText.trim()) || !compactText.includes("WorkBuddy\n"),
+  "the per-card kind badge no longer duplicates the custom source name",
+);
+check(
+  findAllByProp(CURRENT_TREE, "data-dsh-quota-refresh", "").length + findAllByProp(CURRENT_TREE, "data-dsh-quota-refresh", "workbuddy-1").length > 0,
+  "each source keeps its own refresh control",
+);
+
+// One compact card per source, and the credit figures survive the trim.
+const compactCards = findAllByProp(CURRENT_TREE, "data-dsh-quota", "card");
+check(compactCards.length === 3, `still one card per source (got ${compactCards.length})`);
+const compactCredit = findByProp(CURRENT_TREE, "data-dsh-quota-metric", "credits");
+check(compactCredit !== null, "the credit metric still renders");
+check(
+  text(compactCredit).includes(formatted(1568)) && text(compactCredit).includes(formatted(2000)),
+  `the trimmed credit bar still shows remaining / total (got: ${text(compactCredit)})`,
+);
+check(
+  findByProp(compactCredit, "data-dsh-quota-percent", "") !== null,
+  "the percentage survives the trim",
+);
+check(
+  text(compactPanel).length < 400,
+  `the panel's total text stays small (got ${text(compactPanel).length} chars)`,
+);
+// An errored source shows its reason; a bare "No data" beside it is noise.
+check(
+  !(compactText.includes("HTTP 401") && compactText.includes("\u6682\u65e0\u6570\u636e")),
+  "an errored source does not also print a redundant 'no data' line",
+);
+check(
+  compactText.includes("HTTP 401"),
+  "an errored source still shows its error reason",
+);
+
+/* ------------------------------------------------------------------ *
  * summary
  * ------------------------------------------------------------------ */
 console.log(`\n${checks - failures}/${checks} checks passed${failures === 0 ? "" : `, ${failures} FAILED`}`);
 console.log(failures === 0 ? "ALL CLIENT CHECKS PASSED" : `${failures} CHECK(S) FAILED`);
 process.exit(failures === 0 ? 0 : 1);
+
