@@ -84,12 +84,20 @@ function stubUpstream() {
         ok: true,
         account: "integration@example.com",
         fetchedAt: "2026-10-09T09:43:39Z",
+        // The real upstream shape: two groups reusing the same window names.
         groups: [
           {
             name: "Gemini Models",
             buckets: [
               { id: "gemini-weekly", window: "weekly", remainingPercent: 98.28 },
               { id: "gemini-5h", window: "5h", remainingPercent: 98.89 },
+            ],
+          },
+          {
+            name: "Claude and GPT models",
+            buckets: [
+              { id: "claude-weekly", window: "weekly", remainingPercent: 98.51 },
+              { id: "claude-5h", window: "5h", remainingPercent: 100 },
             ],
           },
         ],
@@ -223,7 +231,27 @@ await test("PUT /sources then GET /state returns the client's field names", asyn
 
   const g = state.sources.find((s) => s.id === "g1");
   assert.equal(g.label, "Google 集成");
-  assert.equal(g.metrics.length, 2);
+  assert.equal(g.metrics.length, 4, "both Google groups' buckets must reach the client");
+  // The group name is what lets the client tell the two "周"/"5h" pairs apart,
+  // so it has to survive the whole host -> client path, not just the upstream.
+  for (const metric of g.metrics) {
+    assert.ok(
+      typeof metric.group === "string" && metric.group.length > 0,
+      `google metric ${metric.key} carries no group for the client to label`,
+    );
+  }
+  const groups = [...new Set(g.metrics.map((m) => m.group))];
+  assert.deepEqual(
+    groups,
+    ["Gemini Models", "Claude and GPT models"],
+    "both upstream groups must be represented, in upstream order",
+  );
+  // The window labels repeat across groups; that is precisely why group matters.
+  assert.equal(
+    g.metrics.filter((m) => m.label === "周").length,
+    2,
+    "two weekly windows exist (one per group) — the ambiguity the heading resolves",
+  );
 });
 
 await test("POST /refresh with {sourceId} touches only that upstream", async () => {

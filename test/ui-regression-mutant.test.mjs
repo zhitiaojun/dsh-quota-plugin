@@ -150,6 +150,40 @@ check("the amount and reset time wrap instead of truncating at 230px", () => {
   assert.ok(/data-dsh-quota-amount/.test(source), "the amount marker is gone entirely");
 });
 
+check("Google metrics keep their upstream group name", () => {
+  // The host sends `group` on every google metric; dropping it on the client is
+  // what produced two indistinguishable "周" rows.
+  assert.ok(
+    /typeof value\.group === "string"/.test(source),
+    "normalizeMetric drops the group field: the card cannot label the groups",
+  );
+  assert.ok(/groupMetrics/.test(source), "no grouping helper: metrics render as one flat list");
+  assert.ok(/data-dsh-quota-group/.test(source), "the group heading has no marker to assert on");
+});
+
+check("MUTANT: a flat, ungrouped metric list is rejected", () => {
+  // The pre-fix render was a bare map over every metric.
+  const preFix = `source.metrics.map((metric) => jsx(MetricBar, { metric, t }, metric.key))`;
+  const groupsThem = /groupMetrics\(/.test(preFix);
+  assert.equal(groupsThem, false, "the flat list must fail the grouping assertion");
+});
+
+check("the read-out claims its own line in DSH's dock", () => {
+  assert.ok(/flex-wrap:\s*wrap/.test(source), "no wrap rule: the read-out stays on the stats line");
+  assert.ok(
+    /\[data-dsh-quota-dock-wrap\]/.test(source),
+    "the wrap rule must key off our own attribute, not a hashed DSH class",
+  );
+  assert.ok(/ensureDockWrap/.test(source), "nothing applies the wrap rule");
+});
+
+check("MUTANT: a row-only style with no container rule is rejected", () => {
+  // A style that only sizes the button cannot move it to a second line, because
+  // DSH's dock is `display:flex` without `flex-wrap`.
+  const rowOnly = `const rowStyle = { display: "flex", alignItems: "center", maxWidth: "100%" };`;
+  assert.equal(/flex-wrap/.test(rowOnly), false, "the row-only style must fail the wrap assertion");
+});
+
 console.log(`\n  ${checks - failures}/${checks} checks passed\n`);
 if (failures > 0) {
   console.log(`  ${failures} check(s) FAILED\n`);

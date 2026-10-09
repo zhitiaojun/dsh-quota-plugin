@@ -71,8 +71,22 @@ dsh --profile desktop
 
 设置页填两项：
 
-- **Base URL**：例如 `https://192.3.64.212:28317`
+- **Base URL**：例如 `https://192.3.64.212:28317`（`https://`，端口，**不要**加 `/quota`，插件自己会拼）
 - **Token**：服务端的 `X-Quota-Token`
+
+Google 会返回**两组**额度，而两组的窗口名字是一样的（都有「周」和「5h」），所以面板里会给每组加一个标题：
+
+```
+Antigravity                            ↻
+Gemini Models
+  周                             98.98%
+  5h                               100%
+Claude and GPT models
+  周                             98.51%
+  5h                               100%
+```
+
+没有这个标题就会显示成两根光秃秃的「周」和两根「5h」，看不出哪个属于哪个。
 
 ---
 

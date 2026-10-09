@@ -340,25 +340,35 @@ function findAllByProp(tree, name, value) {
 const ISO_NOW = new Date(Date.now() - 60_000).toISOString();
 const ISO_RESET = new Date(Date.now() + 3 * 3600_000).toISOString();
 const WEEKLY_LABEL = "\u5468"; // 周
+const GEMINI_GROUP = "Gemini Models";
+const CLAUDE_GROUP = "Claude and GPT models";
 const CREDIT_LABEL = "\u5269\u4f59\u79ef\u5206"; // 剩余积分
 const WB_PRIMARY = "WorkBuddy \u4e3b\u53f7"; // WorkBuddy 主号
 
-const host = {
-  calls: [],
-  failState: false,
-  state: {
+/**
+ * The host's state document, built fresh on demand.
+ *
+ * Sections later in this file mutate `host.state`, so they must each start from
+ * a known shape. Sharing one builder keeps the Google fixture (two groups that
+ * reuse the window names) identical everywhere, which is what makes the group
+ * assertions meaningful.
+ */
+function makeHostState() {
+  return {
     ok: true,
-    updatedAt: ISO_NOW,
+    updatedAt: new Date().toISOString(),
     sources: [
       {
         id: "google-1",
         kind: "google",
         label: "Google (DR)",
         status: "ok",
-        refreshedAt: ISO_NOW,
+        refreshedAt: new Date().toISOString(),
         metrics: [
-          { key: "gemini-weekly", label: WEEKLY_LABEL, percent: 98, resetTime: ISO_RESET },
-          { key: "gemini-5h", label: "5h", percent: 99, resetTime: ISO_RESET }
+          { key: "gemini-weekly", group: GEMINI_GROUP, label: WEEKLY_LABEL, percent: 98, resetTime: ISO_RESET },
+          { key: "gemini-5h", group: GEMINI_GROUP, label: "5h", percent: 99, resetTime: ISO_RESET },
+          { key: "claude-weekly", group: CLAUDE_GROUP, label: WEEKLY_LABEL, percent: 98.5, resetTime: ISO_RESET },
+          { key: "claude-5h", group: CLAUDE_GROUP, label: "5h", percent: 100, resetTime: ISO_RESET }
         ]
       },
       {
@@ -366,16 +376,9 @@ const host = {
         kind: "workbuddy",
         label: WB_PRIMARY,
         status: "ok",
-        refreshedAt: ISO_NOW,
+        refreshedAt: new Date().toISOString(),
         metrics: [
-          {
-            key: "credits",
-            label: CREDIT_LABEL,
-            percent: 78.4,
-            remaining: 1568,
-            total: 2000,
-            resetTime: ISO_RESET
-          }
+          { key: "credits", label: CREDIT_LABEL, percent: 78.4, remaining: 1568, total: 2000, resetTime: ISO_RESET }
         ]
       },
       {
@@ -388,7 +391,13 @@ const host = {
         metrics: []
       }
     ]
-  },
+  };
+}
+
+const host = {
+  calls: [],
+  failState: false,
+  state: makeHostState(),
   config: {
     ok: true,
     sources: [
@@ -882,22 +891,7 @@ try {
   // treated as unchanged, never run, and these checks would be vacuous.
   documentListeners.clear();
   records.clear();
-    host.state = {
-    ok: true,
-    updatedAt: new Date().toISOString(),
-    sources: [
-      {
-        id: "workbuddy-1",
-        kind: "workbuddy",
-        label: WB_PRIMARY,
-        status: "ok",
-        refreshedAt: new Date().toISOString(),
-        metrics: [
-          { key: "credits", label: CREDIT_LABEL, percent: 78.4, remaining: 1568, total: 2000, resetTime: ISO_RESET }
-        ]
-      }
-    ]
-  };
+  host.state = makeHostState();
   // `mount` renders ONE root, so the panel must be mounted last: mounting the
   // row afterwards would replace the tree and make the checks vacuous.
   mountSurface(dockReg, "row");
@@ -978,42 +972,7 @@ section("panel compactness");
 // Restore the three-source fixture the dismiss section replaced, and start from
 // a clean hook table so the count below is not affected by leftover state.
 records.clear();
-host.state = {
-  ok: true,
-  updatedAt: new Date().toISOString(),
-  sources: [
-    {
-      id: "google-1",
-      kind: "google",
-      label: "Google (DR)",
-      status: "ok",
-      refreshedAt: new Date().toISOString(),
-      metrics: [
-        { key: "gemini-weekly", label: WEEKLY_LABEL, percent: 98, resetTime: ISO_RESET },
-        { key: "gemini-5h", label: "5h", percent: 99, resetTime: ISO_RESET }
-      ]
-    },
-    {
-      id: "workbuddy-1",
-      kind: "workbuddy",
-      label: WB_PRIMARY,
-      status: "ok",
-      refreshedAt: new Date().toISOString(),
-      metrics: [
-        { key: "credits", label: CREDIT_LABEL, percent: 78.4, remaining: 1568, total: 2000, resetTime: ISO_RESET }
-      ]
-    },
-    {
-      id: "workbuddy-2",
-      kind: "workbuddy",
-      label: "WorkBuddy1",
-      status: "error",
-      error: "HTTP 401",
-      refreshedAt: null,
-      metrics: []
-    }
-  ]
-};
+host.state = makeHostState();
 
 mountSurface(dockReg, "row");
 await settle();
@@ -1116,6 +1075,90 @@ check(
 check(
   compactText.includes("HTTP 401"),
   "an errored source still shows its error reason",
+);
+
+/* ------------------------------------------------------------------ *
+ * Google groups
+ *
+ * Google reports the SAME window names ("周", "5h") in two groups. Without a
+ * heading the card shows two bare "周" and two bare "5h" with nothing to tell
+ * them apart — which is exactly what the user reported as "not quite right".
+ * ------------------------------------------------------------------ */
+section("grouped metrics");
+
+mountSurface(dockReg, "row");
+await settle();
+const grpStore = dockReg.options.inject().store;
+grpStore.setOpen(true, { getBoundingClientRect: () => ROW_RECT });
+mountSurface(overlayReg, "panel");
+await settle();
+
+const googCard = findByProp(CURRENT_TREE, "data-dsh-quota-source", "google-1");
+check(googCard !== null, "the Google card renders");
+
+const geminiHead = findByProp(CURRENT_TREE, "data-dsh-quota-group", GEMINI_GROUP);
+const claudeHead = findByProp(CURRENT_TREE, "data-dsh-quota-group", CLAUDE_GROUP);
+check(geminiHead !== null, "the Gemini group is labelled");
+check(claudeHead !== null, "the Claude/GPT group is labelled");
+check(
+  geminiHead !== null && text(geminiHead).includes(GEMINI_GROUP),
+  "the Gemini heading shows the upstream group name",
+);
+check(
+  claudeHead !== null && text(claudeHead).includes(CLAUDE_GROUP),
+  "the Claude/GPT heading shows the upstream group name",
+);
+// The heading must be distinct in the rendered text, or the ambiguity returns.
+const googText = text(googCard);
+check(
+  googText.includes(GEMINI_GROUP) && googText.includes(CLAUDE_GROUP),
+  `both group names appear in the card (got: ${googText.slice(0, 120)})`,
+);
+// Group order follows the upstream order, Gemini first.
+check(
+  googText.indexOf(GEMINI_GROUP) < googText.indexOf(CLAUDE_GROUP),
+  "groups keep the upstream order (Gemini before Claude/GPT)",
+);
+// Four bars, not two: the second group's rows must NOT be swallowed.
+const googleMetrics = findAllByProp(googCard, "data-dsh-quota", "metric");
+check(
+  googleMetrics.length === 4,
+  `the Google card renders all four windows across both groups (got ${googleMetrics.length})`,
+);
+// A WorkBuddy metric carries no group, so it must render WITHOUT a heading.
+const wbCard = findByProp(CURRENT_TREE, "data-dsh-quota-source", "workbuddy-1");
+check(wbCard !== null, "the WorkBuddy card renders");
+check(
+  findAllByProp(wbCard, "data-dsh-quota-group", "").length === 0 &&
+    !text(wbCard).includes(GEMINI_GROUP),
+  "an ungrouped source grows no heading",
+);
+
+/* ------------------------------------------------------------------ *
+ * dock wrap
+ *
+ * DSH's composer dock is a non-wrapping flex row that also holds the
+ * built-in stats. The read-out must occupy its OWN line, so the container
+ * needs a wrap rule keyed off our own attribute (not a hashed class name).
+ * ------------------------------------------------------------------ */
+section("dock second line");
+
+check(
+  /flex-wrap:\s*wrap/.test(source),
+  "the bundle injects a flex-wrap rule for the dock container",
+);
+check(
+  /\[data-dsh-quota-dock-wrap\]/.test(source),
+  "the wrap rule is scoped to our own marker attribute, not a DSH class name",
+);
+check(
+  /data-dsh-quota='row'\]\{flex:1 0 100%/.test(source.replace(/\\/g, "")),
+  "the read-out claims a full row of its own (flex-basis 100%)",
+);
+// The bundle must handle a DOM-free context rather than throwing.
+check(
+  /typeof document === "undefined"/.test(source),
+  "the wrap helper is guarded for a context without a document",
 );
 
 /* ------------------------------------------------------------------ *
