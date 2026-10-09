@@ -103,18 +103,19 @@ check("the redundant per-source line and text buttons are gone", () => {
   );
 });
 
-check("MUTANT: the pre-trim metric block is rejected by the compactness checks", () => {
-  // The old MetricBar rendered four stacked rows, the last two being meta lines.
+check("MUTANT: the pre-trim stacked-meta shape is rejected", () => {
+  // The old MetricBar rendered the amount and the reset time as TWO separate
+  // stacked divs below the bar. They now share one wrapping line, so the shape
+  // to reject is "two independent block lines", not "any amount marker".
   const preTrim = `
-    <div style={metricHeadStyle}><span>{label}</span><span>{pct}</span></div>
-    <div style={trackStyle}>...</div>
     <div style={metaStyle} data-dsh-quota-amount>{amount}</div>
     <div style={metaStyle} data-dsh-quota-reset>{reset}</div>
   `;
-  const stackedMeta = (preTrim.match(/style=\{metaStyle\}/g) ?? []).length;
-  assert.ok(stackedMeta >= 2, "the pre-trim shape should show two stacked meta lines");
-  const trimmedKeepsThem = /data-dsh-quota-amount/.test(source);
-  assert.equal(trimmedKeepsThem, false, "the trimmed bundle must not keep the stacked amount line");
+  const stackedBlocks = (preTrim.match(/<div[^>]*data-dsh-quota-(amount|reset)/g) ?? []).length;
+  assert.equal(stackedBlocks, 2, "the pre-trim shape should have two stacked block lines");
+  // The shipped bundle keeps ONE container for both, marked metaLineStyle.
+  assert.ok(!/metaStyle, \s*\n\s*"data-dsh-quota-amount"/.test(source), "a stacked amount block came back");
+  assert.ok(/metaLineStyle/.test(source), "the shared wrapping meta line is gone");
 });
 
 check("the trim kept the information the user still needs", () => {
@@ -139,13 +140,14 @@ check("MUTANT: the pre-narrow width (460) is rejected by the width check", () =>
   assert.equal(preFixWidth <= 240, false, "the old 460px width must fail the narrow check");
 });
 
-check("the reset time moves to its own line so nothing truncates at 230px", () => {
-  // Sharing one row at this width would ellipsise the reset time away.
-  assert.ok(/resetLineStyle/.test(source), "reset times no longer have a dedicated line style");
-  assert.ok(
-    /data-dsh-quota-reset/.test(source),
-    "the reset time marker is gone entirely",
-  );
+check("the amount and reset time wrap instead of truncating at 230px", () => {
+  // Sharing a single non-wrapping row at this width would clip a number away.
+  assert.ok(/metaLineStyle/.test(source), "the shared meta line style is gone");
+  const meta = source.match(/const metaLineStyle = \{[\s\S]{0,220}?\};/);
+  assert.ok(meta !== null, "metaLineStyle is not declared");
+  assert.ok(/flexWrap:\s*"wrap"/.test(meta[0]), "the meta line cannot wrap: a number may be clipped");
+  assert.ok(/data-dsh-quota-reset/.test(source), "the reset time marker is gone entirely");
+  assert.ok(/data-dsh-quota-amount/.test(source), "the amount marker is gone entirely");
 });
 
 console.log(`\n  ${checks - failures}/${checks} checks passed\n`);

@@ -1077,6 +1077,33 @@ check(
   text(compactPanel).includes(formatted(1568)) && text(compactPanel).includes(formatted(2000)),
   "remaining and total both survive at the narrow width",
 );
+// Narrow layout: the label and the percentage share the headline row (only two
+// children, so neither can be squeezed out), and the amount plus the reset time
+// share one WRAPPING line beneath the bar. Asserted on structure, because the
+// bundle's style objects are not visible from here.
+const creditMeta = findByProp(compactCredit, "data-dsh-quota-amount", "");
+check(creditMeta !== null, "the amount renders on the narrow panel");
+check(
+  creditMeta !== null && creditMeta.props.style === undefined,
+  "the amount is an inline span in the shared meta line, not its own styled block",
+);
+// Its parent must be the wrapping meta line that also holds the reset time.
+const metaParent = nodes(compactCredit).find(
+  (node) =>
+    node !== null &&
+    typeof node === "object" &&
+    Array.isArray(node.children) &&
+    node.children.includes(creditMeta),
+);
+check(metaParent !== undefined, "the amount sits inside a shared container");
+check(
+  metaParent !== undefined && typeof metaParent.props.style === "object" && metaParent.props.style !== null,
+  "the shared container carries the wrapping layout style",
+);
+check(
+  metaParent !== undefined && metaParent.props.style.flexWrap === "wrap",
+  `the meta line wraps instead of clipping a number (got flexWrap=${metaParent === undefined ? "-" : metaParent.props.style.flexWrap})`,
+);
 check(
   text(compactPanel).length < 400,
   `the panel's total text stays small (got ${text(compactPanel).length} chars)`,
