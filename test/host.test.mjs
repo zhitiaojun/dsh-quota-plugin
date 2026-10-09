@@ -78,11 +78,18 @@ function fakeRes() {
   };
 }
 
-function fakeReq({ method = "GET", url = "/", body = "", address = "127.0.0.1" } = {}) {
+function fakeReq({
+  method = "GET",
+  url = "/",
+  body = "",
+  address = "127.0.0.1",
+  headers = { host: "127.0.0.1:19387" },
+} = {}) {
   const listeners = {};
   const req = {
     method,
     url,
+    headers,
     socket: { remoteAddress: address },
     on(event, handler) {
       listeners[event] = handler;
@@ -349,9 +356,78 @@ await test("router: rejects non-loopback callers", async () => {
     method: "GET",
     url: mod.__internals.STATE_PATH,
     address: "203.0.113.9",
+    headers: { host: "example.com" },
   });
   assert.equal(result.status, 403);
   assert.equal(result.json.error, "request-not-trusted");
+});
+
+/* ------------------------------------------------------------------ *
+ * Trust boundary. A loopback bind is NOT a trust boundary on its own:
+ * any local process, or a DNS-rebinding page, can reach 127.0.0.1. These
+ * cases pin down the actual decision.
+ * ------------------------------------------------------------------ */
+
+await test("trust: accepts a plain loopback Host with no Origin", async () => {
+  const { isTrusted } = mod.__internals;
+  assert.equal(isTrusted({ headers: { host: "127.0.0.1:3456" }, socket: {} }), true);
+  assert.equal(isTrusted({ headers: { host: "localhost:3456" }, socket: {} }), true);
+  assert.equal(isTrusted({ headers: { host: "[::1]:3456" }, socket: {} }), true);
+});
+
+await test("trust: REJECTS a DNS-rebinding request (loopback socket, foreign Host)", async () => {
+  const { isTrusted } = mod.__internals;
+  // The attacker's page resolves evil.example to 127.0.0.1, so the socket IS
+  // loopback — but the Host header still names the attacker's domain. This is
+  // exactly the case a socket-address-only check would wrongly allow.
+  assert.equal(
+    isTrusted({ headers: { host: "evil.example" }, socket: { remoteAddress: "127.0.0.1" } }),
+    false,
+  );
+});
+
+await test("trust: REJECTS a foreign browser Origin even with a loopback Host", async () => {
+  const { isTrusted } = mod.__internals;
+  assert.equal(
+    isTrusted({
+      headers: { host: "127.0.0.1:3456", origin: "https://evil.example" },
+      socket: { remoteAddress: "127.0.0.1" },
+    }),
+    false,
+  );
+  // A loopback Origin is fine.
+  assert.equal(
+    isTrusted({
+      headers: { host: "127.0.0.1:3456", origin: "http://127.0.0.1:19387" },
+      socket: { remoteAddress: "127.0.0.1" },
+    }),
+    true,
+  );
+});
+
+await test("trust: REJECTS a missing Host header", async () => {
+  const { isTrusted } = mod.__internals;
+  assert.equal(isTrusted({ headers: {}, socket: {} }), false);
+});
+
+await test("hostnameOfHost: strips ports without mangling IPv6 literals", async () => {
+  const { hostnameOfHost } = mod.__internals;
+  assert.equal(hostnameOfHost("127.0.0.1:8080"), "127.0.0.1");
+  assert.equal(hostnameOfHost("localhost:19387"), "localhost");
+  assert.equal(hostnameOfHost("[::1]:8080"), "[::1]");
+  assert.equal(hostnameOfHost("[::1]"), "[::1]");
+  assert.equal(hostnameOfHost("example.com:443"), "example.com");
+});
+
+await test("router: a rebinding-style request is 403 at the route, not just in the helper", async () => {
+  const handler = mod.__internals.createHandler();
+  const result = await callHandler(handler, {
+    method: "GET",
+    url: mod.__internals.STATE_PATH,
+    address: "127.0.0.1",
+    headers: { host: "evil.example" },
+  });
+  assert.equal(result.status, 403);
 });
 
 await test("router: PUT then GET round-trips the source list", async () => {

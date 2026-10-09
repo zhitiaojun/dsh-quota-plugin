@@ -564,7 +564,18 @@ check(host.calls.filter((call) => call.url === "/plugins/dsh-quota/state" && cal
  * 2. click the row -> the detail panel
  * ------------------------------------------------------------------ */
 section("detail panel");
-rowNode.props.onClick();
+
+// Simulate a real click: the row sits near the BOTTOM of the window (that is
+// where the composer is), and the click event carries the button as
+// currentTarget. A panel pinned to a corner would ignore this rect entirely.
+// The bundle reads `window` from the value passed to its factory, so the
+// viewport is configured on that same stub — not on globalThis.
+const ROW_RECT = { top: 600, bottom: 628, left: 300, right: 700, width: 400, height: 28 };
+windowStub.innerWidth = 1280;
+windowStub.innerHeight = 720;
+windowStub.addEventListener = () => {};
+windowStub.removeEventListener = () => {};
+rowNode.props.onClick({ currentTarget: { getBoundingClientRect: () => ROW_RECT } });
 renderAndFlush();
 mountSurface(overlayReg, "panel");
 await settle();
@@ -575,7 +586,43 @@ const panelText = text(panelNode);
 check(panelText.includes("Google (DR)") && panelText.includes(WB_PRIMARY), "panel lists every source under its own display name");
 check(panelText.includes("98%"), "panel shows a percentage");
 const cards = findAllByProp(CURRENT_TREE, "data-dsh-quota", "card");
-check(cards.length === 3, `one card per configured source (got ${cards.length})`);
+check(cards.length === 3, `one card per source (got ${cards.length})`);
+
+/* --- anchoring: the panel must appear near the click, not in a corner --- */
+const panelBox = panelNode.props.style;
+check(panelBox.position === "fixed", "the panel is positioned against the viewport");
+check(
+  typeof panelBox.left === "number" && Math.abs(panelBox.left - ROW_RECT.left) <= 1,
+  `panel aligns to the row's left edge, not a corner (got left=${panelBox.left}, row left=${ROW_RECT.left})`,
+);
+check(
+  !("right" in panelBox),
+  "panel is not right-pinned (right-pinning is what put it in the far corner)",
+);
+check(
+  panelBox.top === undefined && typeof panelBox.bottom === "number",
+  `panel opens ABOVE the row when there is room (got bottom=${panelBox.bottom})`,
+);
+// 720 - 600 + gap = 128: it sits just above the row, not at the viewport top.
+check(
+  typeof panelBox.bottom === "number" && panelBox.bottom > 100 && panelBox.bottom < 160,
+  `panel sits just above the row rather than at the window top (got bottom=${panelBox.bottom})`,
+);
+
+const closeButton = findByProp(CURRENT_TREE, "data-dsh-quota-close", "");
+check(closeButton !== null, "the panel offers a close control");
+if (closeButton !== null) {
+  closeButton.props.onClick();
+  renderAndFlush();
+}
+mountSurface(overlayReg, "panel");
+const closed = findByProp(CURRENT_TREE, "data-dsh-quota", "panel");
+check(closed === null, "closing hides the panel");
+// Re-open for the remaining checks, anchored again.
+rowNode.props.onClick({ currentTarget: { getBoundingClientRect: () => ROW_RECT } });
+renderAndFlush();
+mountSurface(overlayReg, "panel");
+await settle();
 
 const creditBar = findByProp(CURRENT_TREE, "data-dsh-quota-metric", "credits");
 check(creditBar !== null, "the WorkBuddy credit metric renders a bar");
