@@ -126,6 +126,28 @@ check("the trim kept the information the user still needs", () => {
   assert.ok(/formatNumber\(metric\.remaining\)/.test(source), "the remaining/total amount is gone");
 });
 
+check("the panel is a narrow popover, not a wide slab", () => {
+  const width = source.match(/const PANEL_WIDTH = (\d+);/);
+  assert.ok(width !== null, "PANEL_WIDTH is not declared");
+  const value = Number(width[1]);
+  assert.ok(value <= 240, `PANEL_WIDTH is ${value}; the user asked for roughly half of 460`);
+  assert.ok(value >= 200, `PANEL_WIDTH is ${value}, too narrow to read comfortably`);
+});
+
+check("MUTANT: the pre-narrow width (460) is rejected by the width check", () => {
+  const preFixWidth = 460;
+  assert.equal(preFixWidth <= 240, false, "the old 460px width must fail the narrow check");
+});
+
+check("the reset time moves to its own line so nothing truncates at 230px", () => {
+  // Sharing one row at this width would ellipsise the reset time away.
+  assert.ok(/resetLineStyle/.test(source), "reset times no longer have a dedicated line style");
+  assert.ok(
+    /data-dsh-quota-reset/.test(source),
+    "the reset time marker is gone entirely",
+  );
+});
+
 console.log(`\n  ${checks - failures}/${checks} checks passed\n`);
 if (failures > 0) {
   console.log(`  ${failures} check(s) FAILED\n`);

@@ -617,6 +617,12 @@ check(
   typeof panelBox.bottom === "number" && panelBox.bottom > 100 && panelBox.bottom < 160,
   `panel sits just above the row rather than at the window top (got bottom=${panelBox.bottom})`,
 );
+// The panel is a status popover. At 460px it read as a wide slab next to the
+// composer; the user asked for half that.
+check(
+  typeof panelBox.width === "number" && panelBox.width <= 240,
+  `the panel is narrow, not a wide slab (got width=${panelBox.width})`,
+);
 
 const closeButton = findByProp(CURRENT_TREE, "data-dsh-quota-close", "");
 check(closeButton !== null, "the panel offers a close control");
@@ -1051,8 +1057,25 @@ check(
   `the trimmed credit bar still shows remaining / total (got: ${text(compactCredit)})`,
 );
 check(
-  findByProp(compactCredit, "data-dsh-quota-percent", "") !== null,
+  "data-dsh-quota-percent" in (compactCredit.props ? compactCredit.props : {}) || findByProp(compactCredit, "data-dsh-quota-percent", "") !== null,
   "the percentage survives the trim",
+);
+// At 230px the amount and the reset time cannot share a line with the label
+// without one being ellipsised, so the reset time moved to its own line. Both
+// must still be present and readable.
+check(
+  findByProp(compactCredit, "data-dsh-quota-reset", "") !== null,
+  "the reset time still renders on the narrow panel",
+);
+const resetLine = findByProp(compactCredit, "data-dsh-quota-reset", "");
+check(
+  resetLine !== null && text(resetLine).length > 0 && !text(resetLine).includes("\u2026"),
+  `the reset time is complete, not truncated (got: ${resetLine === null ? "-" : text(resetLine)})`,
+);
+const amountLabel = findByProp(compactCredit, "data-dsh-quota-metric", "credits");
+check(
+  text(compactPanel).includes(formatted(1568)) && text(compactPanel).includes(formatted(2000)),
+  "remaining and total both survive at the narrow width",
 );
 check(
   text(compactPanel).length < 400,
