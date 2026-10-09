@@ -1,0 +1,31 @@
+[Unit]
+Description=Quota API - Google Antigravity quota over HTTPS
+Documentation=https://github.com/zhitiaojun/dsh-quota-plugin
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Runs as root: `agy` reads its OAuth token from /root/.gemini (mode 700).
+# Sandboxing is applied below instead of dropping privileges.
+ExecStart=/usr/bin/python3 /opt/quota-api/quota_service.py
+Restart=always
+RestartSec=5
+StandardOutput=append:/var/log/quota-api.log
+StandardError=append:/var/log/quota-api.log
+
+# Hardening
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ProtectSystem=full
+ReadWritePaths=/var/log
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryMax=512M
+
+[Install]
+WantedBy=multi-user.target

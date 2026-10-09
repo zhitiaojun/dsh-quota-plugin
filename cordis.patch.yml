@@ -1,0 +1,8 @@
+# Activate the DSH Quota plugin.
+#
+# The host half registers the read-only quota routes (/plugins/dsh-quota/*);
+# the browser half renders the always-visible read-out in the composer area.
+# No other plugin is required or affected.
+- insert:
+    - id: dsh-quota
+      name: dsh-quota-plugin

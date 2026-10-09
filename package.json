@@ -1,0 +1,62 @@
+{
+  "name": "dsh-quota-plugin",
+  "displayName": "DSH Quota",
+  "description": "在一个常驻读数里汇总多个 AI 订阅的剩余额度（Google Antigravity 5h/周配额、WorkBuddy/CodeBuddy 剩余积分）。独立实现，不依赖其它插件。 / Aggregate remaining quota from several AI subscriptions (Google Antigravity 5h/weekly windows, WorkBuddy/CodeBuddy credits) into one always-visible read-out. Standalone: depends on no other plugin.",
+  "version": "0.1.0",
+  "author": "zhitiaojun",
+  "keywords": [
+    "dsh-plugin",
+    "deepseek-harness",
+    "quota",
+    "credits",
+    "antigravity",
+    "workbuddy",
+    "codebuddy"
+  ],
+  "type": "module",
+  "engines": {
+    "node": "^22.19.0 || >=24.0.0"
+  },
+  "main": "lib/index.js",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": "./lib/client.js",
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "cordis.patch.yml",
+    "README.md",
+    "LICENSE"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/zhitiaojun/dsh-quota-plugin.git"
+  },
+  "homepage": "https://github.com/zhitiaojun/dsh-quota-plugin#readme",
+  "bugs": "https://github.com/zhitiaojun/dsh-quota-plugin/issues",
+  "scripts": {
+    "test": "node test/host.test.mjs && node test/client.test.mjs && node test/integration.test.mjs",
+    "test:host": "node test/host.test.mjs",
+    "test:client": "node test/client.test.mjs",
+    "test:integration": "node test/integration.test.mjs",
+    "check": "node --check lib/index.js"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-locale"
+      ],
+      "platform": "web"
+    }
+  }
+}
